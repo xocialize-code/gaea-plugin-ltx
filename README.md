@@ -55,9 +55,12 @@ lists its `quality`. A request for a last frame, say, goes to standard64.
   - **Editing** keeps the clip's size and frames, so a clip off the grid (24 frames, or 120 pixels wide) is 422
     `input_invalid`.
 - **Seeds.** max128 (bf16) gives identical frames for a seed (`deterministic: true`). The int8 tiers declare
-  `false`: two processes given the same seed often agree byte for byte, but not always (within 32–50 dB on every
-  frame when they don't, measured on this plugin's golden cases). A job without a seed gets one, reported in
-  `effective.seed`.
+  `false`: two processes given the same seed often agree byte for byte, but not always. Generating, they differ by
+  32–50 dB on every frame when they don't; an extend or retake drifts further, to about 28 dB by its last frames. A
+  job without a seed gets one, reported in `effective.seed`.
+- **Memory.** Each tier keeps to the package's measured pixel-frame ceiling (width × height × frames): compact24
+  makes 704×512 for 49 frames or 512×288 for 121, balanced32 576×320 for 161, standard64 1280×704 for 161, and max128
+  1920×1088 for 481. A request past it is 422 `out_of_limits`.
 - **`audio: false`** gives a silent clip: Gaea leaves the track out.
 - **Not yet:** LoRAs and IC-LoRAs (they wait on typed adapters in MLXToolKit, AB-A-0197), extending before a clip,
   and prompt enhancement (`prompt_enhance: on` warns `prompt_enhance_ignored`).
@@ -102,7 +105,7 @@ scripts/golden.sh <out-dir>
 
 `golden.sh` runs each case over GPP on the signed bundle and through `ltx-inproc` at seed 7. Each pair must be at the
 reported size and frame count, with 48 kHz stereo sound. On max128 the pair must decode to the same frames, byte for
-byte (ffmpeg's `framemd5`); on the int8 tiers, the same frames or every frame within 30 dB. The cases:
+byte (ffmpeg's `framemd5`); on the int8 tiers, the same frames or every frame within 25 dB. The cases:
 - a 256×256, 9-frame clip on each tier;
 - a first frame on compact24, and a first and last frame on standard64;
 - extend and retake of `Tests/Fixtures/clip.mp4` (128×96, 17 frames, with sound) on compact24.

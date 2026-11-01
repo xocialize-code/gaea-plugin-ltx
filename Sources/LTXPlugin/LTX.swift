@@ -46,6 +46,16 @@ public enum Tier: String, CaseIterable, Sendable {
     /// on a one-stage tier and outgrow its budget.
     public var keyframes: Bool { twoStage }
     public var soundtrack: Bool { twoStage }
+    /// The most pixel-frames (width × height × frames) a run may make: the package's measured ceiling, which the engine
+    /// enforces (`workloadExceedsDeclaredCeiling`). compact24's is 512×288×121, so at 704×512 it makes 49 frames.
+    public var maxPixelFrames: Int {
+        configuration(self).activationScalingHint.map { Int($0.measuredCeiling) } ?? .max
+    }
+    /// The most frames on the 8k + 1 grid at `width`×`height`, within the frame cap and the pixel-frame ceiling.
+    public func maxFrames(width: Int, height: Int) -> Int {
+        let byCeiling = maxPixelFrames / max(1, width * height)
+        return (min(maxFrames, byCeiling) - 1) / 8 * 8 + 1
+    }
     public var qualityTiers: [String] {
         switch self {
         case .compact24: ["draft"]
@@ -57,10 +67,20 @@ public enum Tier: String, CaseIterable, Sendable {
     public var memoryClass: String { self == .max128 ? "xlarge" : "large" }
 }
 
-/// The lane each tier runs in: the package's profile advice (the int8 encoder and pinned stream gate on the low
-/// tiers, streamed blocks on all), at the tier's quant.
+/// The lane each tier runs in: the package's profile advice (the int8 encoder, the lean decoder and the pinned stream
+/// gate on the low tiers, streamed blocks on all), at the tier's quant.
+///
+/// ⚠️ ltx-2-mlx-swift 0.20.0 fetches the low tiers' int8-encoder tree (`-q8`) but `load()` resolves the components from
+/// `repo`, so it ran the bf16 encoder and the stock decoder: about 24.9 GB against a declared 16.2 (AB-T-0405,
+/// AB-A-0241). Until that's fixed the low tiers name the `-q8` tree as `repo` and set the encoder's quant explicitly, so
+/// no suffix is added: the tree they fetch is the tree they load.
 public func configuration(_ tier: Tier) -> LTX2Configuration {
-    LTX2Configuration(family: .ltx25, repo: componentsRepo, quant: tier.quant, profile: tier.profile)
+    guard tier.profile.recommendedTextEncoderQuant == .int8 else {
+        return LTX2Configuration(family: .ltx25, repo: componentsRepo, quant: tier.quant, profile: tier.profile)
+    }
+    var c = LTX2Configuration(family: .ltx25, repo: componentsRepo + "-q8", quant: tier.quant, profile: tier.profile)
+    c.textEncoderQuant = .bf16   // the tree's own encoder is int8; this only stops a second "-q8"
+    return c
 }
 
 // MARK: - What a job asks
@@ -194,9 +214,14 @@ public func generateCall(_ ask: Ask, tier: Tier) throws -> Call {
         }
     } else if let soundtrack {
         let track = try audioSeconds(soundtrack)
-        frames = min(gridFrames(track * fps), (tier.maxFrames - 1) / 8 * 8 + 1)
+        frames = min(gridFrames(track * fps), tier.maxFrames(width: width, height: height))
     } else {
         frames = 9
+    }
+    let most = tier.maxFrames(width: width, height: height)
+    if frames > most {
+        throw refusal("out_of_limits", "At \(width)×\(height) \(tier.title) makes at most \(most) frames (\(String(format: "%.2f", seconds(most, fps))) s at "
+                      + "\(fps) fps): its measured ceiling is \(tier.maxPixelFrames / 1_000_000) million pixel-frames.", param: "duration_s")
     }
     if let soundtrack {
         let track = try audioSeconds(soundtrack)
@@ -281,6 +306,15 @@ public func retakeSpan(start: Double, end: Double, fps: Double, frames: Int) -> 
     return (pixels(ofLatent: a).first, min(frames, pixels(ofLatent: max(a, b)).end))
 }
 
+/// An edit's output within the tier's pixel-frame ceiling (the engine refuses past it).
+func checkEditWorkload(_ source: SourceClip, frames: Int, tier: Tier, param: String) throws {
+    let most = tier.maxFrames(width: source.width, height: source.height)
+    guard frames <= most else {
+        throw refusal("out_of_limits", "At \(source.width)×\(source.height) \(tier.title) edits clips of at most \(most) frames; this one would have "
+                      + "\(frames).", param: param)
+    }
+}
+
 /// The source's size on LTX's /32 edit grid, or an `input_invalid` refusal: the package would cut it down.
 func checkEditSize(_ source: SourceClip) throws {
     guard source.width % 32 == 0, source.height % 32 == 0, source.width >= 64, source.height >= 64 else {
@@ -290,11 +324,12 @@ func checkEditSize(_ source: SourceClip) throws {
 }
 
 /// `video.extend` (Video §3.2): `after_s` (default 1 s) in whole 8-frame steps after the source.
-public func extendCall(_ ask: Ask, source: SourceClip, video: Data) throws -> Call {
+public func extendCall(_ ask: Ask, source: SourceClip, video: Data, tier: Tier) throws -> Call {
     try checkEditSize(source)
     var warnings: [Warning] = []
     let asked = ask.number("after_s") ?? 1
     let steps = max(1, Int((asked * source.fps / 8).rounded(.toNearestOrAwayFromZero)))
+    try checkEditWorkload(source, frames: source.frames + steps * 8, tier: tier, param: "after_s")
     let added = seconds(steps * 8, source.fps)
     if abs(added - asked) > halfFrame(source.fps) {
         warnings.append(Warning(code: "duration_snapped", message: String(format: "%g s added is %d frames, %.3f s, on the model's 8-frame steps.",
@@ -309,8 +344,9 @@ public func extendCall(_ ask: Ask, source: SourceClip, video: Data) throws -> Ca
 
 /// `video.retake` (Video §3.3): the span widened to whole latent frames, `retake` picture, sound or both (default: both
 /// where the source has sound, else picture).
-public func retakeCall(_ ask: Ask, source: SourceClip, video: Data) throws -> Call {
+public func retakeCall(_ ask: Ask, source: SourceClip, video: Data, tier: Tier) throws -> Call {
     try checkEditSize(source)
+    try checkEditWorkload(source, frames: source.frames, tier: tier, param: "video")
     guard let start = ask.number("start_s"), let end = ask.number("end_s"), end > start else {
         throw GPPError(.invalidRequest, "A retake needs start_s before end_s.", detail: ["param": "end_s"])
     }
@@ -349,8 +385,8 @@ public func call(_ ask: Ask, tier: Tier) async throws -> Call {
         }
         let source = try await SourceClip.read(url)
         let data = try Data(contentsOf: url)
-        return ask.operation == "video.extend" ? try extendCall(ask, source: source, video: data)
-            : try retakeCall(ask, source: source, video: data)
+        return ask.operation == "video.extend" ? try extendCall(ask, source: source, video: data, tier: tier)
+            : try retakeCall(ask, source: source, video: data, tier: tier)
     default:
         throw GPPError(.unsupportedOperation, "LTX doesn't do \(ask.operation).")
     }
@@ -417,6 +453,8 @@ func offer(_ tier: Tier, operation: String) -> PluginManifest.Offer {
     let notes = tier.twoStage
         ? "Two stages, \(tier.maxWidth)×\(tier.maxHeight) and \(tier.maxFrames) frames at most, with sound. First and last frames, keyframes and a soundtrack."
         : "One stage, \(tier.maxWidth)×\(tier.maxHeight) (\(tier.conditionedWidth)×\(tier.conditionedHeight) from a first frame or a clip) and \(tier.maxFrames) frames at most, with sound."
+    let ceiling = " At most \(tier.maxPixelFrames / 1_000_000) million pixel-frames: \(tier.maxFrames(width: tier.maxWidth, height: tier.maxHeight)) frames at "
+        + "\(tier.maxWidth)×\(tier.maxHeight)."
     return PluginManifest.Offer(
         operation: operation, profile: "video",
         model: [
@@ -426,12 +464,12 @@ func offer(_ tier: Tier, operation: String) -> PluginManifest.Offer {
                         "notice": .string(licenseNotice)],
             "memory_class": .string(tier.memoryClass), "speed_class": "slow",
             "quality_tiers": .array(tier.qualityTiers.map { .string($0) }),
-            "notes": .string(notes), "supports": .object(supports), "limits": .object(limits),
+            "notes": .string(notes + ceiling), "supports": .object(supports), "limits": .object(limits),
         ])
 }
 
 public let ltxPlugin = GaeaPluginDefinition(
-    id: "com.xocialize.gaea.ltx", version: "0.1.0", minGaea: "0.11.0", team: "CFZS6RXUCP",
+    id: "com.xocialize.gaea.ltx", version: "0.1.1", minGaea: "0.11.0", team: "CFZS6RXUCP",
     repo: "https://github.com/xocialize-code/gaea-plugin-ltx", title: "LTX 2.5",
     summary: "LTX 2.5: video with sound from text, frames and soundtracks (MES video.generate), and extend and retake, in four memory tiers.",
     license: "Apache-2.0", executable: "gaea-ltx-worker",

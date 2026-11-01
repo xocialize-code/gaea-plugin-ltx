@@ -19,7 +19,12 @@ import Testing
             let c = try #require(lane(tier).configuration as? LTX2Configuration)
             #expect(c.family == .ltx25 && c.profile == tier.profile && c.quant == tier.quant && c.effectiveStreamedBlocks)
         }
+        // The low tiers fetch and load the int8-encoder tree, which carries the lean decoder.
         #expect(configuration(.compact24).effectiveComponentsRepo == "mlx-community/ltx-2.5-mlx-q8")
+        let root = URL(fileURLWithPath: "/models")
+        #expect(configuration(.compact24).resolved(storeRoot: root).ltxDirectory?.lastPathComponent == "models--mlx-community--ltx-2.5-mlx-q8")
+        #expect(configuration(.balanced32).resolved(storeRoot: root).ltxDirectory?.lastPathComponent == "models--mlx-community--ltx-2.5-mlx-q8")
+        #expect(configuration(.standard64).resolved(storeRoot: root).ltxDirectory?.lastPathComponent == "models--mlx-community--ltx-2.5-mlx")
         #expect(configuration(.max128).effectiveComponentsRepo == "mlx-community/ltx-2.5-mlx")
     }
 
@@ -47,6 +52,17 @@ import Testing
         #expect(throws: GPPError.self) { try generateCall(ask([:], inputs: ["last_frame": [URL(fileURLWithPath: "/x.png")]]), tier: .compact24) }
     }
 
+    @Test func eachTierKeepsToItsMeasuredPixelFrameCeiling() throws {
+        #expect(Tier.allCases.map(\.maxPixelFrames) == [17_842_176, 29_675_520, 217_169_920, 1_004_789_760])
+        #expect(Tier.compact24.maxFrames(width: 704, height: 512) == 49 && Tier.compact24.maxFrames(width: 512, height: 288) == 121)
+        #expect(Tier.balanced32.maxFrames(width: 576, height: 320) == 161 && Tier.max128.maxFrames(width: 1920, height: 1088) == 481)
+        #expect(throws: GPPError.self) { try generateCall(ask(["size": ["width": 704, "height": 512], "duration_s": 5.04, "fps": 24]), tier: .compact24) }
+        let ok = try #require(try generateCall(ask(["size": ["width": 704, "height": 512], "duration_s": 2.04, "fps": 24]), tier: .compact24).request as? T2VRequest)
+        #expect(ok.numFrames == 49)
+        let big = SourceClip(width: 704, height: 512, frames: 49, fps: 24, hasAudio: true)
+        #expect(throws: GPPError.self) { try extendCall(ask(["after_s": 0.34], operation: "video.extend"), source: big, video: Data(), tier: .compact24) }
+    }
+
     @Test func keyframesGoToTheNearestFrameInsideTheClip() throws {
         let urls = [URL(fileURLWithPath: "/a.png"), URL(fileURLWithPath: "/b.png")]
         let call = try generateCall(ask(["duration_s": 2, "fps": 24, "keyframe_times": [0.51, 1.0]], inputs: ["keyframes": urls]),
@@ -68,7 +84,7 @@ import Testing
 
     @Test func aRetakeRemakesThoseLatentsAndReportsTheSpan() throws {
         let source = SourceClip(width: 128, height: 96, frames: 17, fps: 24, hasAudio: true)
-        let call = try retakeCall(ask(["start_s": 0.4, "end_s": 0.7], operation: "video.retake"), source: source, video: Data())
+        let call = try retakeCall(ask(["start_s": 0.4, "end_s": 0.7], operation: "video.retake"), source: source, video: Data(), tier: .compact24)
         let r = try #require(call.request as? VEditRequest)
         #expect(r.mode == VEditModes.replaceAudioAndVideo && r.numFrames == 17)
         let start = try #require(r.metaData[RetakeMetaKeys.start].flatMap { if case .double(let v) = $0 { v } else { nil } })
@@ -76,19 +92,19 @@ import Testing
         #expect(call.effective["start_s"] == .double(9.0 / 24) && call.effective["end_s"] == .double(17.0 / 24))
         #expect(call.warnings.map(\.code) == ["span_snapped"])
         let silent = SourceClip(width: 128, height: 96, frames: 17, fps: 24, hasAudio: false)
-        let picture = try retakeCall(ask(["start_s": 0.4, "end_s": 0.7], operation: "video.retake"), source: silent, video: Data())
+        let picture = try retakeCall(ask(["start_s": 0.4, "end_s": 0.7], operation: "video.retake"), source: silent, video: Data(), tier: .compact24)
         #expect((picture.request as? VEditRequest)?.mode == VEditModes.replaceVideo && picture.effective["retake"] == "picture")
         #expect(throws: GPPError.self) {
             try retakeCall(ask(["start_s": 0.1, "end_s": 0.3], operation: "video.retake"),
-                           source: SourceClip(width: 120, height: 96, frames: 17, fps: 24, hasAudio: true), video: Data())
+                           source: SourceClip(width: 120, height: 96, frames: 17, fps: 24, hasAudio: true), video: Data(), tier: .compact24)
         }
     }
 
     @Test func anExtendAddsWholeEightFrameSteps() throws {
         let source = SourceClip(width: 128, height: 96, frames: 17, fps: 24, hasAudio: true)
-        let call = try extendCall(ask(["after_s": 0.34], operation: "video.extend"), source: source, video: Data())
+        let call = try extendCall(ask(["after_s": 0.34], operation: "video.extend"), source: source, video: Data(), tier: .compact24)
         #expect(call.effective["after_s"] == .double(1.0 / 3) && call.effective["frames"] == 25 && call.warnings.isEmpty)
-        let more = try extendCall(ask(["after_s": 1.1], operation: "video.extend"), source: source, video: Data())
+        let more = try extendCall(ask(["after_s": 1.1], operation: "video.extend"), source: source, video: Data(), tier: .compact24)
         #expect(more.effective["frames"] == 41 && more.warnings.map(\.code) == ["duration_snapped"])
     }
 

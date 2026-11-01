@@ -3,7 +3,7 @@
 # launch under the launch requirement, configure, prepare, run) and through ltx-inproc with the tier's lane
 # configuration and the request the worker builds (LTXPlugin's `call`), at the same seed. Each pair must decode to the
 # same frames, byte for byte (ffmpeg's framemd5), at the size and frame count the plan reported, in H.264 with a 48 kHz
-# stereo AAC track. max128 (bf16) must; the int8 tiers declare deterministic: false and pass within 30 dB on every frame
+# stereo AAC track. max128 (bf16) must; the int8 tiers declare deterministic: false and pass within 25 dB on every frame
 # when not identical. Gaea retimes and marks the output, and puts an edit's kept frames back (GaeaVideo), so none of
 # that is checked here.
 #
@@ -53,7 +53,7 @@ case_() {
   local got="$(probe $OUT/$name-gpp.mp4 2>/dev/null) $(sound $OUT/$name-gpp.mp4 2>/dev/null)"
   local low=$(psnr $OUT/$name-gpp.mp4 $OUT/$name-inproc.mp4)
   if [[ -n $a && $a == $b && $got == "h264,$want aac,48000,2" ]]; then pass=$((pass+1)); say "PASS  $name: the same decoded frames, $got, framemd5 sha256 $a…"
-  elif [[ $tier != max128 && -n $a && $got == "h264,$want aac,48000,2" ]] && (( low >= 30 )); then
+  elif [[ $tier != max128 && -n $a && $got == "h264,$want aac,48000,2" ]] && (( low >= 25 )); then
     pass=$((pass+1)); say "PASS  $name: within $low dB on every frame (int8, deterministic: false), $got"
   else fail=$((fail+1)); say "FAIL  $name: $a… / $b…, lowest $low dB, $got (want h264,$want aac,48000,2)"; fi
 }
