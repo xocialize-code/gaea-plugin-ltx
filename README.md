@@ -47,13 +47,17 @@ lists its `quality`. A request for a last frame, say, goes to standard64.
   0.5 s of the source so the join is seamless (`overlap_s`).
 - **`video.retake`** makes a span of a clip again: `picture`, `sound` or `both` (the default when the clip has sound).
   The span widens to the model's latent frames (frame 0, then eight at a time), with `span_snapped`.
+- **Kept frames.** LTX decodes the whole clip, so the frames an edit holds come back close to the source, not as
+  they were. Gaea puts the source's own frames back outside a retake's span and before an extend's last 0.5 s.
 - **Grids.** LTX makes 8k + 1 frames (`frame_step`), on a 32-pixel grid (64 on two-stage tiers, `size_step`).
   - **Generating,** the plugin snaps a request to the nearest value within the tier and warns `duration_snapped`,
     `size_snapped` or `keyframe_moved`. A value past the tier is 422 `out_of_limits`.
   - **Editing** keeps the clip's size and frames, so a clip off the grid (24 frames, or 120 pixels wide) is 422
     `input_invalid`.
-- **Seeds.** max128 (bf16) gives identical frames for a seed (`deterministic: true`); the int8 tiers are
-  reproducible on one Mac but declare `false`. A job without a seed gets one, reported in `effective.seed`.
+- **Seeds.** max128 (bf16) gives identical frames for a seed (`deterministic: true`). The int8 tiers declare
+  `false`: two processes given the same seed often agree byte for byte, but not always (within 32–50 dB on every
+  frame when they don't, measured on this plugin's golden cases). A job without a seed gets one, reported in
+  `effective.seed`.
 - **`audio: false`** gives a silent clip: Gaea leaves the track out.
 - **Not yet:** LoRAs and IC-LoRAs (they wait on typed adapters in MLXToolKit, AB-A-0197), extending before a clip,
   and prompt enhancement (`prompt_enhance: on` warns `prompt_enhance_ignored`).
@@ -96,9 +100,9 @@ MLXServeEngine, with the request the worker builds: the reference Gaea's runs ar
 scripts/golden.sh <out-dir>
 ```
 
-`golden.sh` runs each case over GPP on the signed bundle and through `ltx-inproc` at seed 7. It needs each pair to
-decode to the same frames, byte for byte (ffmpeg's `framemd5`), at the reported size and frame count, with 48 kHz
-stereo sound. The cases:
+`golden.sh` runs each case over GPP on the signed bundle and through `ltx-inproc` at seed 7. Each pair must be at the
+reported size and frame count, with 48 kHz stereo sound. On max128 the pair must decode to the same frames, byte for
+byte (ffmpeg's `framemd5`); on the int8 tiers, the same frames or every frame within 30 dB. The cases:
 - a 256×256, 9-frame clip on each tier;
 - a first frame on compact24, and a first and last frame on standard64;
 - extend and retake of `Tests/Fixtures/clip.mp4` (128×96, 17 frames, with sound) on compact24.
