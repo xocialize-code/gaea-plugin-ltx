@@ -18,7 +18,11 @@ let package = Package(
         kitPath.map { .package(path: $0) }
             ?? .package(url: "https://github.com/xocialize-code/gaea-plugin-kit.git", from: "0.9.1"),
         .package(url: "https://github.com/xocialize/ltx-2-mlx-swift.git", exact: "0.20.0"),
-        .package(url: "https://github.com/xocialize/mlx-engine-swift.git", from: "0.73.1"),
+        .package(url: "https://github.com/xocialize/mlx-engine-swift.git", from: "0.74.1"),
+        // ltx-inproc reads MLX's memory counters. The fleet's mlx-swift fork, as mlx-engine-swift 0.74.1 takes it: 0.32.4 is
+        // upstream 0.32.3 plus the _updateInternal leak fix (ml-explore/mlx-swift#501; AB-A-0249, AB-D-0208). A root line
+        // naming ml-explore's URL would win and drop the fix.
+        .package(url: "https://github.com/xocialize/mlx-swift", from: "0.32.4"),
     ],
     targets: [
         .target(
@@ -44,6 +48,7 @@ let package = Package(
                 .product(name: "MLXLTX2", package: "ltx-2-mlx-swift"),
                 .product(name: "MLXToolKit", package: "mlx-engine-swift"),
                 .product(name: "MLXServeCore", package: "mlx-engine-swift"),
+                .product(name: "MLX", package: "mlx-swift"),
             ],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),

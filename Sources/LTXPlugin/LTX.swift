@@ -469,7 +469,7 @@ func offer(_ tier: Tier, operation: String) -> PluginManifest.Offer {
 }
 
 public let ltxPlugin = GaeaPluginDefinition(
-    id: "com.xocialize.gaea.ltx", version: "0.1.2", minGaea: "0.11.0", team: "CFZS6RXUCP",
+    id: "com.xocialize.gaea.ltx", version: "0.1.3", minGaea: "0.11.0", team: "CFZS6RXUCP",
     repo: "https://github.com/xocialize-code/gaea-plugin-ltx", title: "LTX 2.5",
     summary: "LTX 2.5: video with sound from text, frames and soundtracks (MES video.generate), and extend and retake, in four memory tiers.",
     license: "Apache-2.0", executable: "gaea-ltx-worker",

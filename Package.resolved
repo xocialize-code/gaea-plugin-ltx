@@ -1,5 +1,5 @@
 {
-  "originHash" : "b5345e68a6eb9d3784541090b66d8095c0d98244a705486726d50da64e85ef03",
+  "originHash" : "f5834baa374f124b719a4f27bbb03366b35c48e436d427f2bad048edf37efa88",
   "pins" : [
     {
       "identity" : "designscaffold",
@@ -51,8 +51,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/xocialize/mlx-engine-swift.git",
       "state" : {
-        "revision" : "46041603fef7b6378e26753e326828ae71b79ddf",
-        "version" : "0.73.1"
+        "revision" : "1cc9efac41f46cf67fdc786e71bd11b3a4d268cb",
+        "version" : "0.74.1"
       }
     },
     {
@@ -76,10 +76,10 @@
     {
       "identity" : "mlx-swift",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/ml-explore/mlx-swift",
+      "location" : "https://github.com/xocialize/mlx-swift",
       "state" : {
-        "revision" : "19601207e9a0de51e03ee6ec0c3c5f3784275075",
-        "version" : "0.32.3"
+        "revision" : "4650bd13ac20acdd80396efbca52c6f336e6ceb2",
+        "version" : "0.32.4"
       }
     },
     {
