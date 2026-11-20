@@ -414,7 +414,33 @@ public func lane(_ tier: Tier) -> LaneDefinition {
 }
 
 func model(_ tier: Tier) -> ModelDefinition {
-    .engine(MLXLTX25Package.self, id: tier.id, title: tier.title, lanes: [lane(tier)], operations: operations.map { operation($0, tier: tier) })
+    var model = ModelDefinition.engine(MLXLTX25Package.self, id: tier.id, title: tier.title, lanes: [lane(tier)],
+                                       operations: operations.map { operation($0, tier: tier) })
+    model.manifest = withoutAdapters(model.manifest)
+    return model
+}
+
+/// ltx-2-mlx-swift 0.21 on declares typed adapters on its surface (a LoRA or an IC adapter, contract 1.55.0), and the kit
+/// would offer them to Gaea as `adapter_support` on video.generate. This plugin doesn't put a run's adapters on its request
+/// yet (`call` builds the T2VRequest without them), so an adapter Gaea admitted would be dropped without a word. Until it
+/// does, the declaration (and the surface's `adapters` parameter) comes off the model's manifest: no offer says it takes
+/// adapters, and the kit refuses a run that sends one.
+func withoutAdapters(_ manifest: PackageManifest) -> PackageManifest {
+    do {
+        guard var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(manifest)) as? [String: Any],
+              let surfaces = object["surfaces"] as? [[String: Any]] else { return manifest }
+        object["surfaces"] = surfaces.map { surface -> [String: Any] in
+            var surface = surface
+            surface["adapters"] = nil
+            if let parameters = surface["parameters"] as? [[String: Any]] {
+                surface["parameters"] = parameters.filter { $0["name"] as? String != "adapters" }
+            }
+            return surface
+        }
+        return try JSONDecoder().decode(PackageManifest.self, from: JSONSerialization.data(withJSONObject: object))
+    } catch {
+        preconditionFailure("LTX's package manifest didn't round-trip without its adapters: \(error)")
+    }
 }
 
 public let licenseNotice = "LTX 2.5's weights are under the LTX-2 Community License (Lightricks). By using them you accept its terms, "
@@ -469,7 +495,7 @@ func offer(_ tier: Tier, operation: String) -> PluginManifest.Offer {
 }
 
 public let ltxPlugin = GaeaPluginDefinition(
-    id: "com.xocialize.gaea.ltx", version: "0.1.3", minGaea: "0.11.0", team: "CFZS6RXUCP",
+    id: "com.xocialize.gaea.ltx", version: "0.2.0", minGaea: "0.11.0", team: "CFZS6RXUCP",
     repo: "https://github.com/xocialize-code/gaea-plugin-ltx", title: "LTX 2.5",
     summary: "LTX 2.5: video with sound from text, frames and soundtracks (MES video.generate), and extend and retake, in four memory tiers.",
     license: "Apache-2.0", executable: "gaea-ltx-worker",

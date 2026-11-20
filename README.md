@@ -62,8 +62,10 @@ lists its `quality`. A request for a last frame, say, goes to standard64.
   makes 704×512 for 49 frames or 512×288 for 121, balanced32 576×320 for 161, standard64 1280×704 for 161, and max128
   1920×1088 for 481. A request past it is 422 `out_of_limits`.
 - **`audio: false`** gives a silent clip: Gaea leaves the track out.
-- **Not yet:** LoRAs and IC-LoRAs (they wait on typed adapters in MLXToolKit, AB-A-0197), extending before a clip,
-  and prompt enhancement (`prompt_enhance: on` warns `prompt_enhance_ignored`).
+- **Not yet:** LoRAs and IC-LoRAs, extending before a clip, and prompt enhancement (`prompt_enhance: on` warns
+  `prompt_enhance_ignored`). ltx-2-mlx-swift takes typed adapters since 0.21 (AB-A-0197), but this plugin doesn't put
+  a run's adapters on its request yet, so 0.2.0 takes the package's adapter declaration off its manifest
+  (`withoutAdapters`): no offer has `adapter_support`, and a run that sends an adapter is refused.
 
 ## Weights and memory
 

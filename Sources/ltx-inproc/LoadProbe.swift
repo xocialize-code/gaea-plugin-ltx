@@ -41,7 +41,7 @@ func probeManualLoad(directory: URL, last: String, rounds: Int) async throws {
                 let (a, m) = try loadArraysAndMetadata(url: f)
                 weights.merge(a) { $1 }; metadata.merge(m) { $1 }
             }
-            weights = model.sanitize(weights: weights, metadata: metadata)
+            weights = try model.sanitize(weights: weights, metadata: metadata)
             if upTo >= 1, let q = base.quantization {
                 quantize(model: model) { path, _ in weights["\(path).scales"] != nil ? q.asTuple : nil }
             }
